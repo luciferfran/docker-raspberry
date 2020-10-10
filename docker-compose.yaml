@@ -1,0 +1,115 @@
+version: "3.3"
+
+# More info at https://github.com/pi-hole/docker-pi-hole/ and https://docs.p
+i-hole.net/
+services:
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:latest
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "67:67/udp"
+      - "8081:8081/tcp"
+      #- "443:443/tcp"
+    environment:
+      - TZ='Europe/Madrid'
+      - WEB_PORT=8081
+      - #WEBPASSWORD: 'XXXXXXX'
+    # Volumes store your data between container upgrades
+    volumes:
+       - '/home/pi/docker/pihole/etc-pihole/:/etc/pihole/'
+       - '/home/pi/docker/pihole/etc-dnsmasq.d/:/etc/dnsmasq.d/'
+    dns:
+      - 127.0.0.1
+      - 1.1.1.1
+    # Recommended but not required (DHCP needs NET_ADMIN)
+    #   https://github.com/pi-hole/docker-pi-hole#note-on-capabilities
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+
+  duckdns:
+    image: linuxserver/duckdns
+    container_name: duckdns
+    environment:
+      - PUID=1000 #optional
+      - PGID=1000 #optional
+      - TZ=Europe/Madrid
+      - SUBDOMAINS=XXXX,YYYY
+      - TOKEN=9a508147-36c4-4b55-a611-114a3d0c318d
+      - LOG_FILE=false #optional
+    volumes:
+      - /home/pi/docker/ducknds/appdata/config:/config #optional
+    restart: unless-stopped
+
+  wireguard:
+    image: linuxserver/wireguard
+    container_name: wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Madrid
+      - SERVERURL=piedras.duckdns.org #optional
+      - SERVERPORT=51820 #optional
+      - PEERS=2 #optional
+      - PEERDNS=auto #optional
+      - INTERNAL_SUBNET=10.13.13.0 #optional
+    volumes:
+      - /root/wireguard:/config
+      - /lib/modules:/lib/modules
+      - /usr/src:/usr/src
+    ports:
+      - 51820:51820/udp
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+
+
+
+  nginx-proxy:
+      image: braingamer/nginx-proxy-arm
+      restart: always
+      ports:
+        - "80:80"
+        - "443:443"
+      volumes:
+        - /var/run/docker.sock:/tmp/docker.sock:ro
+        - certs:/etc/nginx/certs:ro
+        - confd:/etc/nginx/conf.d
+        - vhostd:/etc/nginx/vhost.d
+        - html:/usr/share/nginx/html
+      labels:
+        - com.github.jrcs.letsencrypt_nginx_proxy_companion.nginx_proxy
+
+  letsencrypt:
+    image: jrcs/letsencrypt-nginx-proxy-companion
+    restart: always
+    environment:
+      - NGINX_PROXY_CONTAINER=nginx-proxy
+    volumes:
+      - certs:/etc/nginx/certs:rw
+      - vhostd:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  www:
+    image: nginx
+    restart: always
+    expose:
+      - "80"
+    volumes:
+      - /home/pi/Documents/html:/usr/share/nginx/html:ro
+    environment:
+      - VIRTUAL_HOST=XXXXX.duckdns.org
+      - LETSENCRYPT_HOST=XXXXXX.duckdns.org
+      - LETSENCRYPT_EMAIL=email@me.com
+
+volumes:
+  certs:
+  html:
+  vhostd:
+  confd:
